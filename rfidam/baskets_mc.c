@@ -4,14 +4,14 @@
 {
     "distutils": {
         "depends": [
-            "/home/andrey/workspace/thesis-rfidam/.venv/lib/python3.8/site-packages/numpy/core/include/numpy/arrayobject.h",
-            "/home/andrey/workspace/thesis-rfidam/.venv/lib/python3.8/site-packages/numpy/core/include/numpy/arrayscalars.h",
-            "/home/andrey/workspace/thesis-rfidam/.venv/lib/python3.8/site-packages/numpy/core/include/numpy/ndarrayobject.h",
-            "/home/andrey/workspace/thesis-rfidam/.venv/lib/python3.8/site-packages/numpy/core/include/numpy/ndarraytypes.h",
-            "/home/andrey/workspace/thesis-rfidam/.venv/lib/python3.8/site-packages/numpy/core/include/numpy/ufuncobject.h"
+            "/Users/andrey/Workspace/thesis-rfidam/.venv/lib/python3.8/site-packages/numpy/core/include/numpy/arrayobject.h",
+            "/Users/andrey/Workspace/thesis-rfidam/.venv/lib/python3.8/site-packages/numpy/core/include/numpy/arrayscalars.h",
+            "/Users/andrey/Workspace/thesis-rfidam/.venv/lib/python3.8/site-packages/numpy/core/include/numpy/ndarrayobject.h",
+            "/Users/andrey/Workspace/thesis-rfidam/.venv/lib/python3.8/site-packages/numpy/core/include/numpy/ndarraytypes.h",
+            "/Users/andrey/Workspace/thesis-rfidam/.venv/lib/python3.8/site-packages/numpy/core/include/numpy/ufuncobject.h"
         ],
         "include_dirs": [
-            "/home/andrey/workspace/thesis-rfidam/.venv/lib/python3.8/site-packages/numpy/core/include"
+            "/Users/andrey/Workspace/thesis-rfidam/.venv/lib/python3.8/site-packages/numpy/core/include"
         ],
         "name": "rfidam.baskets_mc",
         "sources": [

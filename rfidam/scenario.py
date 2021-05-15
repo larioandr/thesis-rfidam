@@ -1,6 +1,6 @@
 from collections import deque
 from dataclasses import dataclass
-from typing import Tuple, Sequence, Iterable
+from typing import Tuple, Iterable
 
 from rfidam.protocol.symbols import InventoryFlag
 
@@ -182,7 +182,6 @@ def mark_scenario(
 
         # Check whether departure appeared during the previous round:
         if len(departure_queue) > 0 and time >= departure_queue[0]:
-            print(departure_queue)
             has_departure = True
             departure_queue.popleft()
             num_tags -= 1

@@ -1,8 +1,8 @@
 from functools import cached_property, reduce
-from typing import Tuple, Sequence
+from typing import Tuple, Sequence, Optional
 
 import numpy as np
-import scipy
+from scipy import linalg
 from rfidam.protocol.symbols import InventoryFlag
 
 from rfidam.inventory import RoundModel, get_inventory_probs
@@ -84,7 +84,8 @@ def estimate_rounds_props(
         ber: float,
         arrival_interval: float,
         time_in_area: float,
-        max_iters: int = 10
+        max_iters: int = 10,
+        t0: Optional[float] = None
 ):
     models = [RoundModel(protocol, 0, ber), RoundModel(protocol, 1, ber)]
     t_off = protocol.props.t_off
@@ -97,6 +98,8 @@ def estimate_rounds_props(
     ]
     n_active_tags = [np.array([0, 1]) for _ in scenario]
 
+    t0 = t0 or 100 * arrival_interval
+
     n_iters = 1
     while n_iters <= max_iters:
         # 1) Mark scenario and build BG chain transitions:
@@ -105,7 +108,7 @@ def estimate_rounds_props(
             arrival_interval=arrival_interval,
             time_in_area=time_in_area,
             durations=durations,
-            t0=(100.5 * arrival_interval))
+            t0=t0)
 
         transitions = build_matrices(
             marked_scenario, BgTransitions,
@@ -113,6 +116,10 @@ def estimate_rounds_props(
             n_slots=protocol.props.n_slots,
             rn16_len=protocol.tr_link.rn16.bitlen)
 
+        # if n_iters > 1:
+        #     for i, trans in enumerate(transitions):
+        #         print(f"D{i}\n", trans)
+        #
         # 2) Compute number of active tags distributions:
         n_active_tags = get_num_active_tags_dists(transitions)
 
@@ -252,7 +259,8 @@ def get_num_active_tags_dists(
         np.ones((1, order))
     ))
     b = np.array([0] * (order - 1) + [1])
-    n_tags_dist = [scipy.linalg.solve(a, b)]
-    for di in chain[1:]:
+    n_tags_dist = [linalg.solve(a, b)]
+    for di in chain[:-1]:
         n_tags_dist.append(n_tags_dist[-1] @ di)
+    # n_tags_dist[0] = n_tags_dist[-1] @ d0
     return tuple(n_tags_dist)

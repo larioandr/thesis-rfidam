@@ -5,7 +5,7 @@ balls in baskets.
 import numpy as np
 from math import factorial
 from functools import lru_cache as cache, cached_property
-from scipy.special import comb
+from math import comb
 from collections import namedtuple
 from typing import Sequence
 
