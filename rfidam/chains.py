@@ -178,7 +178,7 @@ def build_matrices(
     matrices : tuple of ndarray
         number of matrices match the scenario length.
     """
-    n_tags_set = {spec.num_tags for spec in scenario}
+    n_tags_set = {spec.n_tags for spec in scenario}
     n_tags_max = max(n_tags_set)
     inventory_probs = get_inventory_probs(
         n_tags_max, ber=ber, n_slots=n_slots, rn16_len=rn16_len)
@@ -189,24 +189,14 @@ def build_matrices(
     matrices = []
     for i, spec in enumerate(scenario):
         next_spec = scenario[i+1] if i < len(scenario) - 1 else scenario[0]
-        transition: BgTransitions = transitions[spec.num_tags]
+        transition: BgTransitions = transitions[spec.n_tags]
 
         # Round always starts with inventory:
         mat = transition.inventory_matrix
 
-        # Check whether tag will be added or removed:
-        n_tags_delta = next_spec.num_tags - spec.num_tags
-        if n_tags_delta == 1:
-            tag_will_arrive, tag_will_depart = True, False
-        elif n_tags_delta == 0:
-            tag_will_arrive, tag_will_depart = False, False
-        elif n_tags_delta == -1:
-            tag_will_arrive, tag_will_depart = False, True
-        else:
-            raise RuntimeError(f"tag population changes by {n_tags_delta} "
-                               f"tags, but at most 1 tag arrival or departure "
-                               f"is allowed.")
-
+        # First, we take care of flag inversion and power-offs.
+        # These transitions should be carefully processed since the order
+        # matters.
         if spec.turn_off:
             # If reader turns off, then we are not interested in actual
             # flag inversion, since after power-on flag will be A.
@@ -220,14 +210,19 @@ def build_matrices(
             if next_spec.flag != spec.flag:
                 mat = mat @ transition.target_switch_matrix
 
-        if tag_will_arrive:
-            if next_spec.flag == InventoryFlag.B:
-                mat = mat @ transition.arrival_matrix_b
-            elif next_spec.flag == InventoryFlag.A:
-                mat = mat @ transition.arrival_matrix_a
+        # Process tags departures:
+        if spec.n_departed > 0:
+            for _ in range(spec.n_departed):
+                mat = mat @ transition.departure_matrix
 
-        if tag_will_depart:
-            mat = mat @ transition.departure_matrix
+        # Handle tags arrivals:
+        if spec.n_arrived > 0:
+            if next_spec.flag == InventoryFlag.B:
+                arrival_matrix = transition.arrival_matrix_b
+            else:
+                arrival_matrix = transition.arrival_matrix_a
+            for _ in range(spec.n_arrived):
+                mat = mat @ arrival_matrix
 
         # Add matrix to the result:
         matrices.append(mat)

@@ -211,7 +211,7 @@ def get_inventory_probs(n_tags_max: int, ber: float, n_slots: int,
     -------
     mat : np.ndarray
     """
-    mat = np.zeros((n_tags_max + 1, n_tags_max + 1))
+    mat = np.zeros((n_tags_max + 1, n_slots + 1))
     p_rn16 = get_rx_prob(rn16_len, ber)
     for n in range(n_tags_max + 1):
         # p[i] - probability that exactly i _baskets_ have single ball

@@ -16,11 +16,12 @@ class RoundSpec:
 
 @dataclass
 class MarkedRoundSpec(RoundSpec):
-    num_tags: int = 0
-    # drop_and_add: bool = False
+    n_tags: int = 0
+    n_arrived: int = 0
+    n_departed: int = 0
 
     def as_tuple(self):
-        return super().as_tuple() + (self.num_tags,)
+        return super().as_tuple() + (self.n_tags,)
 
 
 def parse_scenario(s: str) -> Tuple[RoundSpec, ...]:
@@ -160,42 +161,39 @@ def mark_scenario(
     next_arrival = last_arrival + arrival_interval
 
     marked_scenario = []
-    num_tags = len(departure_queue)
+    n_tags = len(departure_queue)
 
     for spec, duration in zip(scenario, durations):
-        marked_scenario.append(
-            MarkedRoundSpec(spec.flag, spec.turn_off, num_tags))
+        spec = MarkedRoundSpec(
+            flag=spec.flag,
+            turn_off=spec.turn_off,
+            n_tags=n_tags)
         time += duration
 
         # Check whether arrival appeared during the previous round:
         if time >= next_arrival:
-            has_arrival = True
             departure_queue.append(next_arrival + time_in_area)
-            num_tags += 1
+            spec.n_arrived = 1
             next_arrival += arrival_interval
             if time > next_arrival:
                 raise ValueError(
                     f"too short inter-arrival interval {arrival_interval}: "
                     f"two or more arrivals in one round not supported")
         else:
-            has_arrival = False
+            spec.n_arrived = 0
 
         # Check whether departure appeared during the previous round:
         if len(departure_queue) > 0 and time >= departure_queue[0]:
-            has_departure = True
             departure_queue.popleft()
-            num_tags -= 1
+            spec.n_departed = 1
             if len(departure_queue) > 0 and time > departure_queue[0]:
                 raise ValueError(
                     f"too short inter-arrival interval {arrival_interval}: "
                     f"two or more departures in one round not supported")
         else:
-            has_departure = False
+            spec.n_departed = 0
 
-        if has_departure and has_arrival:
-            raise ValueError(
-                "too short interval between arrival and departure, "
-                "simultaneous arrivals and departures not supported\n"
-                f"time = {time - duration}, round duration = {duration}")
+        marked_scenario.append(spec)
+        n_tags += (spec.n_arrived - spec.n_departed)
 
     return tuple(marked_scenario)
