@@ -10,74 +10,6 @@ from rfidam.protocol.protocol import Protocol
 from rfidam.scenario import MarkedRoundSpec, RoundSpec, mark_scenario
 
 
-class BgTransitions:
-    def __init__(self, n_tags: int, n_tags_max: int,
-                 inventory_probs: np.ndarray):
-        """
-        Factory for producing matrices for the background chain.
-
-        Parameters
-        ----------
-        n_tags : int
-            number of tags in the area when the step is performed
-        n_tags_max : int
-            maximum possible number of simultaneously existing tags
-        inventory_probs: np.ndarray
-            matrix where (n,m) element holds `P_n(m)` probability
-            that m of n tags transmitted EPCID
-        """
-        self.n_tags = n_tags
-        self.n_tags_max = n_tags_max
-        self.inventory_probs = inventory_probs
-
-    def _mat_draft(self):
-        u = np.zeros((self.n_tags_max + 1, self.n_tags_max + 1))
-        for i in range(self.n_tags + 1, self.n_tags_max + 1):
-            u[i, i] = 1.0
-        return u
-
-    @cached_property
-    def inventory_matrix(self):
-        u = self._mat_draft()
-        for i in range(self.n_tags + 1):
-            for j in range(i + 1):
-                u[i, j] = self.inventory_probs[i, i - j]
-        return u
-
-    @cached_property
-    def target_switch_matrix(self):
-        u = self._mat_draft()
-        for i in range(self.n_tags + 1):
-            u[i, self.n_tags - i] = 1.
-        return u
-
-    @cached_property
-    def power_off_matrix(self):
-        u = self._mat_draft()
-        for i in range(self.n_tags + 1):
-            u[i, self.n_tags] = 1.0
-        return u
-
-    @cached_property
-    def arrival_matrix_a(self):
-        u = self._mat_draft()
-        for i in range(self.n_tags + 1):
-            u[i, i + 1] = 1.0
-        return u
-
-    @cached_property
-    def arrival_matrix_b(self):
-        return np.identity(self.n_tags_max + 1)
-
-    @cached_property
-    def departure_matrix(self):
-        u = self._mat_draft()
-        for i in range(self.n_tags):
-            u[i+1, i] = (i+1) / self.n_tags
-            u[i, i] = 1 - i / self.n_tags
-        return u
-
-
 def estimate_rounds_props(
         scenario: Sequence[RoundSpec],
         protocol: Protocol,
@@ -259,3 +191,174 @@ def get_num_active_tags_dists(
         n_tags_dist.append(n_tags_dist[-1] @ di)
     # n_tags_dist[0] = n_tags_dist[-1] @ d0
     return tuple(n_tags_dist)
+
+
+class BgTransitions:
+    def __init__(self, n_tags: int, n_tags_max: int,
+                 inventory_probs: np.ndarray):
+        """
+        Factory for producing matrices for the background chain.
+
+        Parameters
+        ----------
+        n_tags : int
+            number of tags in the area when the step is performed
+        n_tags_max : int
+            maximum possible number of simultaneously existing tags
+        inventory_probs: np.ndarray
+            matrix where (n,m) element holds `P_n(m)` probability
+            that m of n tags transmitted EPCID
+        """
+        self.n_tags = n_tags
+        self.n_tags_max = n_tags_max
+        self.inventory_probs = inventory_probs
+
+    def _mat_draft(self):
+        u = np.zeros((self.n_tags_max + 1, self.n_tags_max + 1))
+        for i in range(self.n_tags + 1, self.n_tags_max + 1):
+            u[i, i] = 1.0
+        return u
+
+    @cached_property
+    def inventory_matrix(self):
+        u = self._mat_draft()
+        for i in range(self.n_tags + 1):
+            for j in range(i + 1):
+                u[i, j] = self.inventory_probs[i, i - j]
+        return u
+
+    @cached_property
+    def target_switch_matrix(self):
+        u = self._mat_draft()
+        for i in range(self.n_tags + 1):
+            u[i, self.n_tags - i] = 1.
+        return u
+
+    @cached_property
+    def power_off_matrix(self):
+        u = self._mat_draft()
+        for i in range(self.n_tags + 1):
+            u[i, self.n_tags] = 1.0
+        return u
+
+    @cached_property
+    def arrival_matrix_a(self):
+        u = self._mat_draft()
+        for i in range(self.n_tags + 1):
+            u[i, i + 1] = 1.0
+        return u
+
+    @cached_property
+    def arrival_matrix_b(self):
+        return np.identity(self.n_tags_max + 1)
+
+    @cached_property
+    def departure_matrix(self):
+        u = self._mat_draft()
+        for i in range(self.n_tags):
+            u[i+1, i] = (i+1) / self.n_tags
+            u[i, i] = 1 - i / self.n_tags
+        return u
+
+
+class FgTransitions:
+    def __init__(self, n_tags: int, n_tags_max: int, p_id: float,
+                 inventory_probs: np.ndarray):
+        """
+        Factory for producing matrices for the foreground chain.
+        """
+        self.n_tags = n_tags
+        self.n_tags_max = n_tags_max
+        self.inventory_probs = inventory_probs
+        self.at = lambda i: i-1  # matrix elements are base-1 numerated
+        self.p_id = p_id
+        self.order = 2 * self.n_tags_max + 1
+
+    def _mat_draft(self) -> np.ndarray:
+        u = np.zeros((self.order, self.order))
+        for i in range(1, self.n_tags_max - self.n_tags + 1):
+            i1 = self.at(self.n_tags + i)
+            i2 = i1 + self.n_tags_max - 1
+            u[i1, i1] = 1.
+            u[i2, i2] = 1.
+        u[self.order - 1, self.order - 1] = 1.
+        return u
+
+    @cached_property
+    def inventory_matrix(self) -> np.ndarray:
+        at, n, n_max = self.at, self.n_tags, self.n_tags_max
+        u = self._mat_draft()
+
+        # Transitions from states 1, 2, ..., N - observable tag is active:
+        for i in range(1, n+1):
+            # Observable tag is kept active, (i-j) other tags sent EPCID:
+            for j in range(1, i+1):
+                u[at(i), at(j)] = float(j)/i * self.inventory_probs[i, i-j]
+
+            # (j - n_max - 1) tags sent EPCID, including observable tag.
+            # Observable tag EPCID transmission wasn't successful.
+            for j in range(n_max + 1, n_max + n + 1):
+                u[at(i), at(j)] = (
+                        float(i - (j - n_max - 1))/i *
+                        (1 - self.p_id) *
+                        self.inventory_probs[i, i - (j - n_max - 1)])
+
+            # Observable tag sent its ID successfully.
+            u[at(i), at(2 * n_max + 1)] = self.p_id * sum(
+                float(k)/i * self.inventory_probs[i, k] for k in range(1, i+1))
+
+        # Transitions from states Nm+1, Nm+2, ..., Nm+N-1 - observable tag
+        # is not active:
+        for i in range(n_max + 1, n_max + n + 1):
+            for j in range(n_max + 1, i + 1):
+                u[at(i), at(j)] = self.inventory_probs[i - n_max - 1, i - j]
+
+        return u
+
+    @cached_property
+    def target_switch_matrix(self) -> np.ndarray:
+        at, n, n_max = self.at, self.n_tags, self.n_tags_max
+        u = self._mat_draft()
+        for i in range(1, n+1):
+            j = n_max + n + 1 - i
+            u[at(i), at(j)] = 1.
+            u[at(j), at(i)] = 1.
+        return u
+
+    @cached_property
+    def power_off_matrix(self) -> np.ndarray:
+        at, n, n_max = self.at, self.n_tags, self.n_tags_max
+        u = self._mat_draft()
+        for i in range(1, n+1):
+            j = n_max + i
+            u[at(i), at(n)] = 1.
+            u[at(j), at(n)] = 1.
+        return u
+
+    @cached_property
+    def arrival_matrix_a(self) -> np.ndarray:
+        at, n, n_max = self.at, self.n_tags, self.n_tags_max
+        u = self._mat_draft()
+        for i in range(1, n+1):
+            j = n_max + i
+            u[at(i), at(i+1)] = 1.
+            u[at(j), at(j+1)] = 1.
+        return u
+
+    @cached_property
+    def arrival_matrix_b(self) -> np.ndarray:
+        return np.identity(self.order)
+
+    @cached_property
+    def departure_matrix(self) -> np.ndarray:
+        at, n, n_max = self.at, self.n_tags, self.n_tags_max
+        u = self._mat_draft()
+        for i in range(1, n+1):
+            if i > 1:
+                u[at(i), at(i-1)] = float(i-1) / (n-1)
+            u[at(i), at(i)] = float(n-i) / (n-1)
+        for i in range(n_max + 1, n_max + n + 1):
+            if i > n_max + 1:
+                u[at(i), at(i-1)] = float(i - n_max - 1) / (n-1)
+            u[at(i), at(i)] = float(n - (i - n_max)) / (n-1)
+        return u
