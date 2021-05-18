@@ -21,6 +21,15 @@ def get_rx_prob(frame: Union[TagFrame, int], ber: float):
         return np.power(1 - ber, frame)
 
 
+@cache
+def get_id_prob(protocol: Protocol, ber: float):
+    link = protocol.tr_link
+    n_bits = link.rn16.msg.bitlen + link.epc.msg.bitlen
+    if protocol.props.use_tid:
+        n_bits += link.handle.msg.bitlen + link.data.msg.bitlen
+    return get_rx_prob(n_bits, ber)
+
+
 SlotValues = namedtuple('SlotValues', ['empty', 'reply', 'collided'])
 
 

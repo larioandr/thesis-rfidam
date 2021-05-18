@@ -1,11 +1,11 @@
 from functools import cached_property, reduce
-from typing import Tuple, Sequence, Optional
+from typing import Tuple, Sequence, Optional, Dict
 
 import numpy as np
 from scipy import linalg
 from rfidam.protocol.symbols import InventoryFlag
 
-from rfidam.inventory import RoundModel, get_inventory_probs
+from rfidam.inventory import RoundModel, get_inventory_probs, get_id_prob
 from rfidam.protocol.protocol import Protocol
 from rfidam.scenario import MarkedRoundSpec, RoundSpec, mark_scenario
 
@@ -199,6 +199,98 @@ def get_num_active_tags_dists(
     return tuple(n_tags_dist)
 
 
+def estimate_id_probs(
+        n_tags_probs: Sequence[np.ndarray],
+        scenario: Sequence[MarkedRoundSpec],
+        durations: Sequence[float],
+        ber: float,
+        protocol: Protocol,
+        time_in_area: float,
+) -> Tuple[float, Dict[int, float]]:
+    # 1. Extract rounds where tags arrive and compute arrival probs.
+    #    Tag can arrive in the round, iff number of tags after this
+    #    round is incremented.
+    #    Probability of tag arrival in the round is proportional to its length.
+    n_rounds = len(scenario)
+    assert len(n_tags_probs) == n_rounds
+    assert len(durations) == n_rounds
+
+    arrival_rounds = \
+        [(i+1) % n_rounds for i, sc in enumerate(scenario) if sc.n_arrived > 0]
+    arrival_durations = np.array([durations[i] for i in arrival_rounds])
+    arrival_probs = arrival_durations / sum(arrival_durations)
+    # print("ARRIVAL PROBS : ", arrival_probs)
+
+    # 2. Compute initial probabilities of FG process for each round,
+    #    where the tag possibly arrived.
+    #    - If in this round target = A, then tag will be active
+    #    - Otherwise, tag will be passive.
+    #    Anyway, number of tags in given in n_tags_probs[i].
+
+    # print("N TAGS DISTRIBUTIONS:")
+    # for i in arrival_rounds:
+    #     print(f"{i}: {n_tags_probs[i]}, flag: {scenario[i].flag}")
+
+    init_probs = {
+        i: _get_fg_init_probs(n_tags_probs[i], scenario[i].flag)
+        for i in arrival_rounds
+    }
+
+    # 3. Build chain of FG matrices.
+    chain = build_matrices(
+        scenario, FgTransitions,
+        ber=ber, n_slots=protocol.props.n_slots,
+        p_id=get_id_prob(protocol, ber))
+
+    # 4. Assuming tag arrived at round i, compute process transition matrix
+    #    and get ID probability.
+    id_probs = np.zeros(len(arrival_rounds))
+    for i, r0 in enumerate(arrival_rounds):
+        matrix, j, duration = chain[r0], r0+1, durations[r0]
+        while duration < time_in_area:
+            j = j % n_rounds
+            # print(j, n_rounds)
+            duration += durations[j]
+            matrix = matrix @ chain[j]
+            j += 1
+        id_probs[i] = (init_probs[r0] @ matrix).flatten()[-1]
+
+    # 5. Compute overall ID probability by averaging over arrival probs:
+    avg_id_prob = arrival_probs @ id_probs
+
+    return avg_id_prob, {
+        r0: id_prob
+        for r0, id_prob in zip(arrival_rounds, id_probs)
+    }
+
+
+def _get_fg_init_probs(
+        n_tags_dist: np.ndarray, target: InventoryFlag) -> np.ndarray:
+    """
+    Build initial probability vector for FG process from number of tags
+    distribution and target flag.
+    """
+    # Make sure it is impossible that this state holds 0 tags:
+    n_max = n_tags_dist.shape[0] - 1
+    probs = np.zeros(n_max*2 + 1)
+
+    if target == InventoryFlag.A:
+        if n_tags_dist[0] > 1e-9:
+            n_tags_dist = n_tags_dist.copy()
+            n_tags_dist = n_tags_dist / (1 - n_tags_dist[0])
+            n_tags_dist[0] = 0.0
+        for i, p in enumerate(n_tags_dist[1:]):
+            probs[i] = p
+    else:
+        if n_tags_dist[-1] > 1e-9:
+            n_tags_dist = n_tags_dist.copy()
+            n_tags_dist = n_tags_dist / (1 - n_tags_dist[-1])
+            n_tags_dist[-1] = 0.0
+        for i, p in enumerate(n_tags_dist[:-1]):
+            probs[n_max + i] = p
+    return probs
+
+
 class BgTransitions:
     def __init__(self, n_tags: int, n_tags_max: int,
                  inventory_probs: np.ndarray, **kwargs):
@@ -251,7 +343,7 @@ class BgTransitions:
     @cached_property
     def arrival_matrix_a(self):
         u = self._mat_draft()
-        for i in range(self.n_tags + 1):
+        for i in range(min(self.n_tags+1, self.n_tags_max)):
             u[i, i + 1] = 1.0
         return u
 
