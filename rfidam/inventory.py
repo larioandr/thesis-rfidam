@@ -211,16 +211,18 @@ def get_inventory_probs(n_tags_max: int, ber: float, n_slots: int,
     -------
     mat : np.ndarray
     """
-    mat = np.zeros((n_tags_max + 1, n_slots + 1))
+    mat = np.zeros((n_tags_max + 1, n_tags_max + 1))
+    m_max = min(n_slots, n_tags_max)
     p_rn16 = get_rx_prob(rn16_len, ber)
     for n in range(n_tags_max + 1):
         # p[i] - probability that exactly i _baskets_ have single ball
         p = BasketsOccupancyProblem.create(n_slots, n).single
-        # Here we need to carefully check, whether we
-        for m in range(n_slots + 1):
+        for m in range(m_max+1):
             terms = (p[i] * comb(i, m) * p_rn16 ** m * (1 - p_rn16) ** (i - m)
                      for i in range(m, n_slots+1))
             mat[n, m] = sum(terms)
+        for m in range(m_max+1, n_tags_max+1):
+            mat[n, m] = 0.0
     return mat
 
 

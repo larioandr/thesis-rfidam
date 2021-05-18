@@ -92,7 +92,8 @@ def build_matrices(
         transitions_factory_class: type, *,
         ber: float,
         n_slots: int,
-        rn16_len: int = 16
+        rn16_len: int = 16,
+        p_id: float = 0,
 ) -> Tuple[np.ndarray, ...]:
     """
     Build a sequence of matrices for the given marked scenario.
@@ -104,6 +105,7 @@ def build_matrices(
     ber
     n_slots
     rn16_len
+    p_id
 
     Returns
     -------
@@ -115,7 +117,11 @@ def build_matrices(
     inventory_probs = get_inventory_probs(
         n_tags_max, ber=ber, n_slots=n_slots, rn16_len=rn16_len)
     transitions = {
-        n_tags: transitions_factory_class(n_tags, n_tags_max, inventory_probs)
+        n_tags: transitions_factory_class(
+            n_tags=n_tags,
+            n_tags_max=n_tags_max,
+            inventory_probs=inventory_probs,
+            p_id=p_id)
         for n_tags in n_tags_set
     }
     matrices = []
@@ -195,7 +201,7 @@ def get_num_active_tags_dists(
 
 class BgTransitions:
     def __init__(self, n_tags: int, n_tags_max: int,
-                 inventory_probs: np.ndarray):
+                 inventory_probs: np.ndarray, **kwargs):
         """
         Factory for producing matrices for the background chain.
 
@@ -208,6 +214,7 @@ class BgTransitions:
         inventory_probs: np.ndarray
             matrix where (n,m) element holds `P_n(m)` probability
             that m of n tags transmitted EPCID
+        kwargs : ignored
         """
         self.n_tags = n_tags
         self.n_tags_max = n_tags_max
@@ -278,7 +285,7 @@ class FgTransitions:
         u = np.zeros((self.order, self.order))
         for i in range(1, self.n_tags_max - self.n_tags + 1):
             i1 = self.at(self.n_tags + i)
-            i2 = i1 + self.n_tags_max - 1
+            i2 = i1 + self.n_tags_max
             u[i1, i1] = 1.
             u[i2, i2] = 1.
         u[self.order - 1, self.order - 1] = 1.
