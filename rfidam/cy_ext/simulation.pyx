@@ -1,4 +1,3 @@
-#distutils: language = c++
 from libcpp.list cimport list
 from libcpp.vector cimport vector
 from libcpp.map cimport map
@@ -8,6 +7,7 @@ from libc.stdlib cimport malloc, free
 # noinspection PyUnresolvedReferences
 from cython.operator cimport dereference as deref, preincrement as inc
 import numpy as np
+cimport numpy as np
 
 from rfidam.simulation import ModelParams, Journal
 from rfidam.protocol.symbols import InventoryFlag
@@ -30,11 +30,38 @@ cdef struct Tag:
 
 cdef struct Descriptor:
     double t_off
-    map[string, double] durations
-    map[string, double] p_rx
+    map[Symbols, double] durations
+    map[Symbols, double] p_rx
     list[Tag*] tags
     bool use_tid
     int n_slots
+
+
+cdef struct CJournal:
+    vector[double] rounds_durations
+    vector[int] num_tags_active
+    vector[int] num_rounds_active
+    vector[int] first_round_index
+    vector[int] num_identified
+
+
+cdef struct Rnd:
+    vector[double] values
+    int next_index
+
+
+cdef init_rnd(Rnd* rnd, int sz):
+    rnd.values = np.random.uniform(0, 1, sz)
+    rnd.next_index = 0
+
+
+cdef double next_rnd(Rnd* rnd):
+    cdef double ret
+    if rnd.next_index == <int>rnd.values.size():
+        init_rnd(rnd, <int>rnd.values.size())
+    ret = rnd.values[rnd.next_index]
+    rnd.next_index += 1
+    return ret
 
 
 # noinspection PyUnresolvedReferences
@@ -54,6 +81,11 @@ def simulate(params: ModelParams, verbose: bool = False) -> Journal:
     cdef list[Tag*].iterator it
     cdef Tag* tag_ptr
 
+    # Define random numbers generator for fast access:
+    cdef Rnd rnd
+    init_rnd(&rnd, 1000)
+
+
     # To prevent calling Python, extract flags and turn-offs from scenario:
     cdef vector[int] sc_flags
     cdef vector[bool] sc_turn_off
@@ -71,25 +103,26 @@ def simulate(params: ModelParams, verbose: bool = False) -> Journal:
     sim_desc.t_off = props.t_off
     sim_desc.use_tid = props.use_tid
     sim_desc.n_slots = props.n_slots
-    sim_desc.durations["t1"] = timings.t1
-    sim_desc.durations["t2"] = timings.t2
-    sim_desc.durations["t3"] = timings.t3
-    sim_desc.durations["t4"] = timings.t4
-    sim_desc.durations["query"] = rt_link.query.duration
-    sim_desc.durations["query_rep"] = rt_link.query_rep.duration
-    sim_desc.durations["ack"] = rt_link.ack.duration
-    sim_desc.durations["rn16"] = tr_link.rn16.duration
-    sim_desc.durations["epc"] = tr_link.epc.duration
-    sim_desc.p_rx["rn16"] = get_rx_prob(tr_link.rn16, params.ber)
-    sim_desc.p_rx["epc"] = get_rx_prob(tr_link.epc, params.ber)
+    sim_desc.durations[T1] = timings.t1
+    sim_desc.durations[T2] = timings.t2
+    sim_desc.durations[T3] = timings.t3
+    sim_desc.durations[T4] = timings.t4
+    sim_desc.durations[QUERY] = rt_link.query.duration
+    sim_desc.durations[QUERY_REP] = rt_link.query_rep.duration
+    sim_desc.durations[ACK] = rt_link.ack.duration
+    sim_desc.durations[RN16] = tr_link.rn16.duration
+    sim_desc.durations[EPC] = tr_link.epc.duration
+    sim_desc.p_rx[RN16] = get_rx_prob(tr_link.rn16, params.ber)
+    sim_desc.p_rx[EPC] = get_rx_prob(tr_link.epc, params.ber)
 
+    # noinspection DuplicatedCode
     if props.use_tid:
-        sim_desc.durations["req_rn"] = rt_link.req_rn.duration
-        sim_desc.durations["read"] = rt_link.read.duration
-        sim_desc.durations["handle"] = tr_link.handle.duration
-        sim_desc.durations["data"] = tr_link.data.duration
-        sim_desc.p_rx["handle"] = get_rx_prob(tr_link.handle, params.ber)
-        sim_desc.p_rx["data"] = get_rx_prob(tr_link.data, params.ber)
+        sim_desc.durations[REQ_RN] = rt_link.req_rn.duration
+        sim_desc.durations[READ] = rt_link.read.duration
+        sim_desc.durations[HANDLE] = tr_link.handle.duration
+        sim_desc.durations[DATA] = tr_link.data.duration
+        sim_desc.p_rx[HANDLE] = get_rx_prob(tr_link.handle, params.ber)
+        sim_desc.p_rx[DATA] = get_rx_prob(tr_link.data, params.ber)
 
     if verbose:
         print("DURATIONS:")
@@ -97,7 +130,7 @@ def simulate(params: ModelParams, verbose: bool = False) -> Journal:
         print("PROBABILITIES:")
         print(sim_desc.p_rx)
 
-    journal = Journal()
+    cdef CJournal journal
 
     while tag_index < max_tags or not sim_desc.tags.empty():
         num_iter += 1
@@ -117,9 +150,9 @@ def simulate(params: ModelParams, verbose: bool = False) -> Journal:
             sim_desc.tags.push_back(tag)
 
             # Add corresponding journal records:
-            journal.num_rounds_active.append(0)
-            journal.first_round_index.append(round_index)
-            journal.num_identified.append(0)
+            journal.num_rounds_active.push_back(0)
+            journal.first_round_index.push_back(round_index)
+            journal.num_identified.push_back(0)
 
             # Update offset and tag index:
             if verbose:
@@ -143,7 +176,7 @@ def simulate(params: ModelParams, verbose: bool = False) -> Journal:
         round_duration = _sim_round(
             sc_flags[round_index % sc_len],
             sc_turn_off[round_index % sc_len],
-            &sim_desc, journal)
+            &sim_desc, &journal, &rnd)
         time += round_duration
 
         # Move tags:
@@ -155,10 +188,11 @@ def simulate(params: ModelParams, verbose: bool = False) -> Journal:
 
         round_index += 1
 
-    return journal
+    return convert_journal(&journal)
 
 
-cdef double _sim_round(int flag, bool turn_off, Descriptor* d, journal):
+cdef double _sim_round(int flag, bool turn_off, Descriptor* d,
+                       CJournal* journal, Rnd* rnd):
     """
     Simulate round and return its duration.
 
@@ -179,15 +213,15 @@ cdef double _sim_round(int flag, bool turn_off, Descriptor* d, journal):
             journal.num_rounds_active[tag.index] += 1
 
     # Extract values often used:
-    cdef double t1 = d.durations["t1"]
-    cdef double t2 = d.durations["t2"]
+    cdef double t1 = d.durations[T1]
+    cdef double t2 = d.durations[T2]
 
     # Select random slot for each tag:
     cdef int n_active_tags = active_tags.size()
     cdef vector[int] tags_slots = np.random.randint(0, d.n_slots, n_active_tags)
 
     # Compute number of tags in each slot:
-    cdef vector[int] n_tags_per_slot = np.zeros(d.n_slots)
+    cdef vector[int] n_tags_per_slot = vector[int](d.n_slots, 0)
     cdef int slot
     for slot in tags_slots:
         n_tags_per_slot[slot] += 1
@@ -204,13 +238,11 @@ cdef double _sim_round(int flag, bool turn_off, Descriptor* d, journal):
     # Query and QueryRep commands. These durations don't depend on
     # success of particular replies transmissions.
     cdef double duration = (
-        d.durations["query"] +
-        (d.n_slots - 1) * d.durations["query_rep"] +
-        n_empty_slots * d.durations["t4"] +
-        n_collided_slots * (t1 + t2 + d.durations["rn16"])
+        d.durations[QUERY] +
+        (d.n_slots - 1) * d.durations[QUERY_REP] +
+        n_empty_slots * d.durations[T4] +
+        n_collided_slots * (t1 + t2 + d.durations[RN16])
     )
-
-    cdef double p
 
     # Now we model reply slots
     for i in range(n_active_tags):
@@ -220,17 +252,15 @@ cdef double _sim_round(int flag, bool turn_off, Descriptor* d, journal):
             continue
 
         # Attempt to transmit RN16:
-        duration += t1 + t2 + d.durations["rn16"]
-        p = np.random.uniform()
-        if p > d.p_rx["rn16"]:
+        duration += t1 + t2 + d.durations[RN16]
+        if next_rnd(rnd) > d.p_rx[RN16]:
             continue  # Error in RN16 reception
 
         # Reader transmits Ack, tag attempts to transmit EPCID.
         # Since tag transmitted EPCID, and we model no NACKs, invert tag flag.
-        duration += d.durations["ack"] + t1 + d.durations["epc"] + t2
+        duration += d.durations[ACK] + t1 + d.durations[EPC] + t2
         tag.flag = FLAG_B if tag.flag == FLAG_A else FLAG_A
-        p = np.random.uniform()
-        if p > d.p_rx["epc"]:
+        if next_rnd(rnd) > d.p_rx[EPC]:
             continue  # Error in EPCID reception
 
         if not d.use_tid:
@@ -238,13 +268,13 @@ cdef double _sim_round(int flag, bool turn_off, Descriptor* d, journal):
             continue  # Tag was identified, nothing more needed
 
         # Reader transmits Req_Rn, tag attempts to transmit Handle:
-        duration += d.durations["req_rn"] + t1 + d.durations["handle"] + t2
-        if np.random.uniform() > d.p_rx["handle"]:
+        duration += d.durations[REQ_RN] + t1 + d.durations[HANDLE] + t2
+        if next_rnd(rnd) > d.p_rx[HANDLE]:
             continue  # Error in Handle reception
 
         # Reader transmits Read, tag attempts to transmit Data:
-        duration += d.durations["read"] + t1 + d.durations["data"] + t2
-        if np.random.uniform() <= d.p_rx["data"]:
+        duration += d.durations[READ] + t1 + d.durations[DATA] + t2
+        if next_rnd(rnd) <= d.p_rx[DATA]:
             journal.num_identified[tag.index] += 1
             continue
 
@@ -256,6 +286,16 @@ cdef double _sim_round(int flag, bool turn_off, Descriptor* d, journal):
         duration += d.t_off
 
     # Record round statistics:
-    journal.num_tags_active.append(n_active_tags)
-    journal.round_durations.append(duration)
+    journal.num_tags_active.push_back(n_active_tags)
+    journal.rounds_durations.push_back(duration)
     return duration
+
+
+cdef convert_journal(CJournal* cj):
+    pj = Journal()
+    pj.round_durations = [x for x in cj.rounds_durations]
+    pj.num_tags_active = [int(x) for x in cj.num_tags_active]
+    pj.num_rounds_active = [int(x) for x in cj.num_rounds_active]
+    pj.first_round_index = [int(x) for x in cj.first_round_index]
+    pj.num_identified = [int(x) for x in cj.num_identified]
+    return pj
