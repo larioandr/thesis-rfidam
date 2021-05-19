@@ -69,8 +69,7 @@ cdef double next_rnd(Rnd* rnd):
 
 # noinspection PyUnresolvedReferences
 def simulate(params: ModelParams, only_id: bool = False,
-             verbose: bool = False) -> Journal:
-    cdef int max_tags = len(params.arrivals)
+             verbose: bool = False, n_tags: int = 1000) -> Journal:
     cdef double max_time_in_area = params.time_in_area
     cdef int sc_len = len(params.scenario)
 
@@ -89,6 +88,9 @@ def simulate(params: ModelParams, only_id: bool = False,
     cdef Rnd rnd
     init_rnd(&rnd, 1000)
 
+    # Define arrival timestamps:
+    cdef vector[float] arrivals = \
+        params.arrival_interval * np.arange(1, n_tags+1)
 
     # To prevent calling Python, extract flags and turn-offs from scenario:
     cdef vector[int] sc_flags
@@ -140,16 +142,16 @@ def simulate(params: ModelParams, only_id: bool = False,
 
     cdef bool c_only_id = only_id
 
-    while tag_index < max_tags or not sim_desc.tags.empty():
+    while tag_index < n_tags or not sim_desc.tags.empty():
         num_iter += 1
         if verbose:
             if num_iter > 0 and num_iter % 1000 == 0:
                 print(f"* {num_iter} iterations passed, time = {time}, "
-                      f"generated {tag_index}/{max_tags} tags")
+                      f"generated {tag_index}/{n_tags} tags")
 
         # Add new tags:
-        while tag_index < max_tags and params.arrivals[tag_index] < time:
-            created_at = params.arrivals[tag_index]
+        while tag_index < n_tags and arrivals[tag_index] < time:
+            created_at = arrivals[tag_index]
             tag = <Tag*> malloc(sizeof(Tag))
             tag.index = tag_index
             tag.time_in_area = time - created_at

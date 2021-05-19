@@ -13,7 +13,7 @@ from rfidam.statistics import StatsVector, group_round_values, \
 @dataclass
 class ModelParams:
     protocol: Protocol
-    arrivals: Sequence[float]
+    arrival_interval: float
     time_in_area: float
     scenario: Sequence[RoundSpec]
     ber: float
@@ -142,9 +142,9 @@ class Tag:
     n_id: int = 0
 
 
-def simulate(params: ModelParams, only_id: bool = False,
-             verbose: bool = False) -> Journal:
-    max_tags = len(params.arrivals)
+def simulate(params: ModelParams, *, only_id: bool = False,
+             verbose: bool = False, n_tags: int = 2000) -> Journal:
+    arrivals = params.arrival_interval * np.arange(1, n_tags+1)
     max_time_in_area = params.time_in_area
     sc_len: int = len(params.scenario)
 
@@ -159,17 +159,17 @@ def simulate(params: ModelParams, only_id: bool = False,
     # MAX_ITER = 10
     num_iter = 0
 
-    while tag_index < max_tags or tags:
+    while tag_index < n_tags or tags:
         num_iter += 1
         if verbose:
             if num_iter > 0 and num_iter % 1000 == 0:
                 print(f"* {num_iter} iterations passed, time = {time}, "
-                      f"generated {tag_index}/{max_tags} tags: "
+                      f"generated {tag_index}/{n_tags} tags: "
                       f"{[(tag.index, tag.time_in_area) for tag in tags]}")
 
         # Add new tags:
-        while tag_index < max_tags and params.arrivals[tag_index] < time:
-            created_at = params.arrivals[tag_index]
+        while tag_index < n_tags and arrivals[tag_index] < time:
+            created_at = arrivals[tag_index]
             tag = Tag(tag_index, time_in_area=(time - created_at))
             tags.append(tag)
             if not only_id:

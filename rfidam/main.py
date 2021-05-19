@@ -20,12 +20,12 @@ def main():
     protocol = Protocol(props)
     params = ModelParams(
         protocol,
-        arrivals=list(range(1000)),
+        arrival_interval=1.0,
         time_in_area=2.3,
         scenario=parse_scenario("ABABx"),
         ber=.02)
 
-    journal = simulate(params)
+    journal = simulate(params, n_tags=1000)
     sc_info = build_scenario_info([journal], 4)
     print("P_ID =", journal.p_id, f"({journal.n_identified}/{journal.n_tags})")
     print("\nRounds durations:\n", sc_info.round_durations)
