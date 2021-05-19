@@ -4,7 +4,7 @@ from rfidam.protocol.symbols import TagEncoding, DR
 from rfidam.scenario import parse_scenario
 from rfidam.simulation import ModelParams, build_scenario_info
 from rfidam.protocol.protocol import Protocol, LinkProps
-from rfidam.simulation import simulate
+from rfidam.cy_ext.simulation import simulate
 
 
 def main():
@@ -20,13 +20,14 @@ def main():
     protocol = Protocol(props)
     params = ModelParams(
         protocol,
-        arrivals=list(range(5000)),
+        arrivals=list(range(1000)),
         time_in_area=2.3,
         scenario=parse_scenario("ABABx"),
         ber=.02)
 
     journal = simulate(params)
     sc_info = build_scenario_info([journal], 4)
+    print("P_ID =", journal.p_id, f"({journal.n_identified}/{journal.n_tags})")
     print("\nRounds durations:\n", sc_info.round_durations)
     print("\nNumber of active tags:\n", sc_info.num_tags_active)
     print("\nID probs:\n", sc_info.id_probs)

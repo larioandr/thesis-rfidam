@@ -26,6 +26,7 @@ cdef struct Tag:
     int index
     double time_in_area
     int flag
+    int n_id
 
 
 cdef struct Descriptor:
@@ -43,6 +44,8 @@ cdef struct CJournal:
     vector[int] num_rounds_active
     vector[int] first_round_index
     vector[int] num_identified
+    int n_identified
+    int n_tags
 
 
 cdef struct Rnd:
@@ -65,7 +68,8 @@ cdef double next_rnd(Rnd* rnd):
 
 
 # noinspection PyUnresolvedReferences
-def simulate(params: ModelParams, verbose: bool = False) -> Journal:
+def simulate(params: ModelParams, only_id: bool = False,
+             verbose: bool = False) -> Journal:
     cdef int max_tags = len(params.arrivals)
     cdef double max_time_in_area = params.time_in_area
     cdef int sc_len = len(params.scenario)
@@ -131,6 +135,10 @@ def simulate(params: ModelParams, verbose: bool = False) -> Journal:
         print(sim_desc.p_rx)
 
     cdef CJournal journal
+    journal.n_identified = 0
+    journal.n_tags = 0
+
+    cdef bool c_only_id = only_id
 
     while tag_index < max_tags or not sim_desc.tags.empty():
         num_iter += 1
@@ -146,13 +154,16 @@ def simulate(params: ModelParams, verbose: bool = False) -> Journal:
             tag.index = tag_index
             tag.time_in_area = time - created_at
             tag.flag = FLAG_A
+            tag.n_id = 0
+            journal.n_tags += 1
 
             sim_desc.tags.push_back(tag)
 
             # Add corresponding journal records:
-            journal.num_rounds_active.push_back(0)
-            journal.first_round_index.push_back(round_index)
-            journal.num_identified.push_back(0)
+            if not c_only_id:
+                journal.num_rounds_active.push_back(0)
+                journal.first_round_index.push_back(round_index)
+                journal.num_identified.push_back(0)
 
             # Update offset and tag index:
             if verbose:
@@ -167,6 +178,8 @@ def simulate(params: ModelParams, verbose: bool = False) -> Journal:
             tag_ptr = deref(it)
             if tag_ptr.time_in_area > max_time_in_area:
                 it = sim_desc.tags.erase(it)
+                if tag_ptr.n_id > 0:
+                    journal.n_identified += 1
                 if verbose:
                     print(f"tag {tag_ptr.index} departed at {time}")
                 free(tag_ptr)
@@ -176,7 +189,7 @@ def simulate(params: ModelParams, verbose: bool = False) -> Journal:
         round_duration = _sim_round(
             sc_flags[round_index % sc_len],
             sc_turn_off[round_index % sc_len],
-            &sim_desc, &journal, &rnd)
+            &sim_desc, &journal, &rnd, c_only_id)
         time += round_duration
 
         # Move tags:
@@ -192,7 +205,7 @@ def simulate(params: ModelParams, verbose: bool = False) -> Journal:
 
 
 cdef double _sim_round(int flag, bool turn_off, Descriptor* d,
-                       CJournal* journal, Rnd* rnd):
+                       CJournal* journal, Rnd* rnd, bool only_id):
     """
     Simulate round and return its duration.
 
@@ -210,7 +223,8 @@ cdef double _sim_round(int flag, bool turn_off, Descriptor* d,
             active_tags.push_back(tag)
             # Record number of tags in area and number of active tags
             # to tag and round journals:
-            journal.num_rounds_active[tag.index] += 1
+            if not only_id:
+                journal.num_rounds_active[tag.index] += 1
 
     # Extract values often used:
     cdef double t1 = d.durations[T1]
@@ -264,7 +278,9 @@ cdef double _sim_round(int flag, bool turn_off, Descriptor* d,
             continue  # Error in EPCID reception
 
         if not d.use_tid:
-            journal.num_identified[tag.index] += 1
+            tag.n_id += 1
+            if not only_id:
+                journal.num_identified[tag.index] += 1
             continue  # Tag was identified, nothing more needed
 
         # Reader transmits Req_Rn, tag attempts to transmit Handle:
@@ -275,7 +291,9 @@ cdef double _sim_round(int flag, bool turn_off, Descriptor* d,
         # Reader transmits Read, tag attempts to transmit Data:
         duration += d.durations[READ] + t1 + d.durations[DATA] + t2
         if next_rnd(rnd) <= d.p_rx[DATA]:
-            journal.num_identified[tag.index] += 1
+            tag.n_id += 1
+            if not only_id:
+                journal.num_identified[tag.index] += 1
             continue
 
     # If reader turns off after round, reset all tags flags and add
@@ -286,8 +304,9 @@ cdef double _sim_round(int flag, bool turn_off, Descriptor* d,
         duration += d.t_off
 
     # Record round statistics:
-    journal.num_tags_active.push_back(n_active_tags)
-    journal.rounds_durations.push_back(duration)
+    if not only_id:
+        journal.num_tags_active.push_back(n_active_tags)
+        journal.rounds_durations.push_back(duration)
     return duration
 
 
@@ -298,4 +317,6 @@ cdef convert_journal(CJournal* cj):
     pj.num_rounds_active = [int(x) for x in cj.num_rounds_active]
     pj.first_round_index = [int(x) for x in cj.first_round_index]
     pj.num_identified = [int(x) for x in cj.num_identified]
+    pj.n_identified = cj.n_identified
+    pj.n_tags = cj.n_tags
     return pj

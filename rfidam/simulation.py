@@ -70,6 +70,16 @@ class Journal:
     first_round_index: List[int] = field(default_factory=list)
     # Number of times the tag was identified
     num_identified: List[int] = field(default_factory=list)
+    #
+    # Aggregated values:
+    # ------------------
+    # Number of tags identified
+    n_identified: int = 0
+    n_tags: int = 0
+
+    @property
+    def p_id(self) -> float:
+        return float(self.n_identified) / self.n_tags if self.n_tags else 0.0
 
 
 def build_scenario_info(
@@ -129,9 +139,11 @@ class Tag:
     index: int
     time_in_area: float = 0.0
     flag: InventoryFlag = InventoryFlag.A
+    n_id: int = 0
 
 
-def simulate(params: ModelParams, verbose: bool = False) -> Journal:
+def simulate(params: ModelParams, only_id: bool = False,
+             verbose: bool = False) -> Journal:
     max_tags = len(params.arrivals)
     max_time_in_area = params.time_in_area
     sc_len: int = len(params.scenario)
@@ -160,26 +172,35 @@ def simulate(params: ModelParams, verbose: bool = False) -> Journal:
             created_at = params.arrivals[tag_index]
             tag = Tag(tag_index, time_in_area=(time - created_at))
             tags.append(tag)
-            # Validate journal contains records up to this new tag:
-            assert len(journal.num_rounds_active) == tag.index
-            assert len(journal.first_round_index) == tag.index
-            assert len(journal.num_identified) == tag.index
-            # Add corresponding journal records:
-            journal.num_rounds_active.append(0)
-            journal.first_round_index.append(round_index)
-            journal.num_identified.append(0)
+            if not only_id:
+                # Validate journal contains records up to this new tag:
+                assert len(journal.num_rounds_active) == tag.index
+                assert len(journal.first_round_index) == tag.index
+                assert len(journal.num_identified) == tag.index
+                # Add corresponding journal records:
+                journal.num_rounds_active.append(0)
+                journal.first_round_index.append(round_index)
+                journal.num_identified.append(0)
             # Update offset and tag index:
             tag_index += 1
+            journal.n_tags += 1
 
         # Remove too old tags:
-        tags = [tag for tag in tags if tag.time_in_area < max_time_in_area]
+        kept_tags = []
+        for tag in tags:
+            if tag.time_in_area < max_time_in_area:
+                kept_tags.append(tag)
+            elif tag.n_id > 0:
+                journal.n_identified += 1
+        tags = kept_tags
 
         round_duration = _sim_round(
             spec=params.scenario[round_index % sc_len],
             tags=tags,
             protocol=params.protocol,
             ber=params.ber,
-            journal=journal)
+            journal=journal,
+            only_id=only_id)
         time += round_duration
 
         # Move tags:
@@ -192,7 +213,7 @@ def simulate(params: ModelParams, verbose: bool = False) -> Journal:
 
 
 def _sim_round(spec: RoundSpec, tags: Sequence[Tag], protocol: Protocol,
-               ber: float, journal: Journal) -> float:
+               ber: float, journal: Journal, only_id: bool = False) -> float:
     """
     Simulate round and return its duration.
 
@@ -210,8 +231,9 @@ def _sim_round(spec: RoundSpec, tags: Sequence[Tag], protocol: Protocol,
 
     # Record number of tags in area and number of active tags
     # to tag and round journals:
-    for tag in active_tags:
-        journal.num_rounds_active[tag.index] += 1
+    if not only_id:
+        for tag in active_tags:
+            journal.num_rounds_active[tag.index] += 1
 
     # Select random slot for each tag:
     tags_slots = np.random.randint(0, link.n_slots, len(active_tags))
@@ -254,7 +276,9 @@ def _sim_round(spec: RoundSpec, tags: Sequence[Tag], protocol: Protocol,
             continue  # Error in EPCID reception
 
         if not link.use_tid:
-            journal.num_identified[tag.index] += 1
+            if not only_id:
+                journal.num_identified[tag.index] += 1
+            tag.n_id += 1
             continue  # Tag was identified, nothing more needed
 
         # Reader transmits Req_Rn, tag attempts to transmit Handle:
@@ -266,7 +290,9 @@ def _sim_round(spec: RoundSpec, tags: Sequence[Tag], protocol: Protocol,
         # Reader transmits Read, tag attempts to transmit Data:
         duration += rt_link.read.duration + t1 + tr_link.data.duration + t2
         if np.random.uniform() <= get_rx_prob(tr_link.data, ber):
-            journal.num_identified[tag.index] += 1
+            if not only_id:
+                journal.num_identified[tag.index] += 1
+            tag.n_id += 1
             continue
         # print("> failed to receive DATA")
 
@@ -278,6 +304,7 @@ def _sim_round(spec: RoundSpec, tags: Sequence[Tag], protocol: Protocol,
         duration += link.t_off
 
     # Record round statistics:
-    journal.num_tags_active.append(len(active_tags))
-    journal.round_durations.append(duration)
+    if not only_id:
+        journal.num_tags_active.append(len(active_tags))
+        journal.round_durations.append(duration)
     return duration
