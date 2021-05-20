@@ -1,7 +1,6 @@
 from libcpp.list cimport list
 from libcpp.vector cimport vector
 from libcpp.map cimport map
-from libcpp.string cimport string
 from libcpp cimport bool
 from libc.stdlib cimport malloc, free
 # noinspection PyUnresolvedReferences
@@ -234,21 +233,26 @@ cdef double _sim_round(int flag, bool turn_off, Descriptor* d,
 
     # Select random slot for each tag:
     cdef int n_active_tags = active_tags.size()
-    cdef vector[int] tags_slots = np.random.randint(0, d.n_slots, n_active_tags)
-
-    # Compute number of tags in each slot:
-    cdef vector[int] n_tags_per_slot = vector[int](d.n_slots, 0)
+    cdef vector[int] tags_slots
+    cdef vector[int] n_tags_per_slot
     cdef int slot
-    for slot in tags_slots:
-        n_tags_per_slot[slot] += 1
-
     cdef int n_empty_slots = 0
     cdef int n_collided_slots = 0
-    for slot in range(d.n_slots):
-        if n_tags_per_slot[slot] == 0:
-            n_empty_slots += 1
-        elif n_tags_per_slot[slot] > 1:
-            n_empty_slots += 1
+
+    if n_active_tags > 0:
+        tags_slots = np.random.randint(0, d.n_slots, n_active_tags)
+        n_tags_per_slot = vector[int](d.n_slots, 0)
+
+        for slot in tags_slots:
+            n_tags_per_slot[slot] += 1
+
+        for slot in range(d.n_slots):
+            if n_tags_per_slot[slot] == 0:
+                n_empty_slots += 1
+            elif n_tags_per_slot[slot] > 1:
+                n_collided_slots += 1
+    else:
+        n_empty_slots = d.n_slots
 
     # Compute round duration including all empty and collided slots,
     # Query and QueryRep commands. These durations don't depend on
