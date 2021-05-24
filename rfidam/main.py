@@ -38,6 +38,7 @@ _batch_options = [
                  help="Power-off duration (default: 0.1)"),
     click.option('-j', '--num-workers', default=1,
                  help='Number of workers (default: 1)'),
+    click.option('--trext', default=0, help="TRext value, 0 or 1 (default: 0)"),
     click.option('--jupyter', is_flag=True, default=False),
 ]
 
@@ -71,7 +72,9 @@ def solve(file_name, **kwargs):
 
 
 def _run_batch_command(file_name, kwargs, fn, field_suffix):
-    df = pd.read_csv(file_name)
+    with open(file_name, 'r') as f:
+        comments = [f.readline() for _ in range(13)]
+        df = pd.read_csv(f, skip_blank_lines=True, comment='#')
 
     if kwargs['jupyter']:
         from tqdm.notebook import tqdm
@@ -97,7 +100,10 @@ def _run_batch_command(file_name, kwargs, fn, field_suffix):
     df = pd.concat(result_chunks, ignore_index=True)
     for field in [f'p_{field_suffix}', f't_{field_suffix}']:
         df[field] = df.apply(lambda row: row['__ret'][field], axis=1)
-    df.drop(['__ret'], axis=1).to_csv(file_name, index=False)
+
+    with open(file_name, 'w') as f:
+        f.writelines(comments)
+        df.drop(['__ret'], axis=1).to_csv(f, index=False)
 
 
 def _apply_simulate(args):
@@ -201,7 +207,7 @@ def _build_protocol(kwargs, use_tid):
         trcal=kwargs['trcal'],
         m=TagEncoding.parse(kwargs['tag_encoding']),
         dr=DR.parse(kwargs['dr']),
-        trext=kwargs.get('trext', False),
+        trext=bool(kwargs['trext']),
         q=kwargs['q'],
         use_tid=use_tid,
         t_off=kwargs['time_off'],
@@ -212,29 +218,6 @@ def _build_protocol(kwargs, use_tid):
 
 def main():
     cli()
-    # props = LinkProps(
-    #     tari=12.5e-6,
-    #     rtcal=25e-6,
-    #     trcal=40e-6,
-    #     m=TagEncoding.M2,
-    #     dr=DR.DR_643,
-    #     trext=False,
-    #     q=2,
-    #     use_tid=False)
-    # protocol = Protocol(props)
-    # params = ModelParams(
-    #     protocol,
-    #     arrival_interval=1.0,
-    #     time_in_area=2.3,
-    #     scenario=parse_scenario("ABABx"),
-    #     ber=.02)
-    #
-    # journal = simulate(params, n_tags=1000)
-    # sc_info = build_scenario_info([journal], 4)
-    # print("P_ID =", journal.p_id, f"({journal.n_identified}/{journal.n_tags})")
-    # print("\nRounds durations:\n", sc_info.round_durations)
-    # print("\nNumber of active tags:\n", sc_info.num_tags_active)
-    # print("\nID probs:\n", sc_info.id_probs)
 
 
 if __name__ == '__main__':

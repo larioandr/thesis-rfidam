@@ -65,7 +65,18 @@ def estimate_rounds_props(
                 RoundModel(protocol, n_tags, ber)
                 for n_tags in range(len(models), n_tags_max + 1)
             ])
+        elif len(models) > n_tags_max:
+            models = models[:(n_tags_max+1)]
         ts = np.array([model.round_duration for model in models])
+
+        if len(ts) != len(n_active_tags[0]):
+            # print('-'*40)
+            # print("TS: ", ts)
+            # print("P : ", n_active_tags)
+            # print('-'*40)
+            raise RuntimeError(f"bad shapes: ts={ts}, "
+                               f"n_active_tags={n_active_tags}")
+
         updated_durations = [
             ts.dot(p) + (protocol.props.t_off if spec.turn_off else 0)
             for p, spec in zip(n_active_tags, marked_scenario)]
@@ -276,16 +287,24 @@ def _get_fg_init_probs(
 
     if target == InventoryFlag.A:
         if n_tags_dist[0] > 1e-9:
-            n_tags_dist = n_tags_dist.copy()
-            n_tags_dist = n_tags_dist / (1 - n_tags_dist[0])
-            n_tags_dist[0] = 0.0
+            if n_tags_dist[0] >= 0.99:
+                n_tags_dist = np.concatenate(([0, 1], np.zeros(n_max-1)))
+            else:
+                n_tags_dist = n_tags_dist.copy()
+                n_tags_dist = n_tags_dist / (1 - n_tags_dist[0])
+                n_tags_dist[0] = 0.0
+            assert n_tags_dist.shape[0] == n_max + 1
         for i, p in enumerate(n_tags_dist[1:]):
             probs[i] = p
     else:
         if n_tags_dist[-1] > 1e-9:
-            n_tags_dist = n_tags_dist.copy()
-            n_tags_dist = n_tags_dist / (1 - n_tags_dist[-1])
-            n_tags_dist[-1] = 0.0
+            if n_tags_dist[-1] > 0.99:
+                n_tags_dist = np.concatenate((np.zeros(n_max-1), [1, 0]))
+            else:
+                n_tags_dist = n_tags_dist.copy()
+                n_tags_dist = n_tags_dist / (1 - n_tags_dist[-1])
+                n_tags_dist[-1] = 0.0
+            assert n_tags_dist.shape[0] == n_max + 1
         for i, p in enumerate(n_tags_dist[:-1]):
             probs[n_max + i] = p
     return probs
