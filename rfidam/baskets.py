@@ -154,6 +154,17 @@ def mean_num(pmf: Sequence[float]) -> float:
     return pmf.dot(np.arange(len(pmf)))
 
 
+def _get_empty_prob(m: int, n_baskets: int, n_balls: int) -> float:
+    if n_baskets == 0:
+        return 1.0 if m == 0 else 0.0
+    p = stirling2(n_balls, n_baskets - m) / factorial(m)
+    k = min(n_baskets, n_balls)
+    p *= (np.arange(n_baskets, n_baskets - k, -1) / n_baskets).prod()
+    p *= factorial(n_baskets - k)
+    p /= pow(n_baskets, n_balls - k)
+    return p
+
+
 class BasketsOccupancyProblem:
     """
     Class representing a problem for finding probability distributions
@@ -208,15 +219,11 @@ class BasketsOccupancyProblem:
         n_baskets = self._n_baskets
         n_balls = self._n_balls
         for m in range(self.n_baskets + 1):
-            p = stirling2(n_balls, n_baskets - m) / factorial(m)
-            k = min(n_baskets, n_balls)
-            p *= (np.arange(n_baskets, n_baskets - k, -1) / n_baskets).prod()
-            p *= factorial(n_baskets - k)
-            p /= pow(n_baskets, n_balls - k)
-            probs.append(p)
+            probs.append(_get_empty_prob(m, n_baskets, n_balls))
         return np.asarray(probs)
 
-    @cached_property
+    # @cached_property
+    @property
     def single(self) -> np.ndarray:
         """
         Get PMF that exactly m balls will be put to separate urns.
@@ -226,9 +233,28 @@ class BasketsOccupancyProblem:
 
         # In bad case, when formula from Valez-Alonso paper doesn't work,
         # use Monte-Carlo method to estimate probabilities:
+
         if self.n_baskets < self.n_balls or self.n_baskets > 8 or \
                 self.n_balls > 8:
             return self._estimated_occupancy.single
+
+        # FIXME: some error below, wrong result:
+        # n_baskets, n_balls = self.n_baskets, self.n_balls
+        # if self.n_baskets > 8 or self.n_balls > 8:
+        #     return self._estimated_occupancy.single
+        # probs = np.zeros(self.n_baskets + 1)
+        # for i, m1 in enumerate(range(min(n_baskets, n_balls) + 1)):
+        #     p = 0
+        #     print("m1 =", m1)
+        #     for m0 in range(self.n_baskets - m1 + 1):
+        #         n_busy = n_baskets - m0
+        #         print(f"m0={m0}: "
+        #               f"p0={_get_empty_prob(m0, n_baskets, n_balls):.4f}, "
+        #               f"p1={_get_empty_prob(m1, n_busy, n_balls-n_busy):.4f}")
+        #         p += _get_empty_prob(m0, n_baskets, n_balls) * \
+        #             _get_empty_prob(m1, n_baskets-m0, n_balls-(n_baskets-m0))
+        #     probs[i] = p
+        # return probs
 
         # Otherwise, use formula from Valez-Alonso paper:
         return np.asarray([
