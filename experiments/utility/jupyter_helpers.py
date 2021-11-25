@@ -25,6 +25,8 @@ def setup_matplotlib() -> None:
         'axes.formatter.use_locale': True,
         'font.size': 16,
         'font.family': 'sans-serif',
+        'axes.titlesize': 'medium',
+        'figure.titlesize': 'medium',
 
         # Шрифт PT Serif Caption можно установить с Google Fonts.
         # После установки шрифта нужно удалить кэш matplitlib,
