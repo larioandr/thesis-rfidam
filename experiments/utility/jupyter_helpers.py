@@ -14,7 +14,7 @@ IMAGE_EXTENSIONS = ("pdf", "png")  # В каких форматах сохран
 
 DARK_CMAP = matplotlib.cm.get_cmap(CMAP_NAME)
 LIGHT_CMAP = matplotlib.cm.get_cmap(LIGHT_CMAP_NAME)
-
+BW_CMAP = matplotlib.cm.get_cmap('Greys')
 
 def setup_matplotlib() -> None:
     """
@@ -48,6 +48,19 @@ def get_color(x: float):
         color
     """
     return DARK_CMAP(x)
+
+
+def get_bw_color(x: float):
+    """
+    Получить цвет из текущей карты.
+    
+    Args:
+        x (float): число от 0 до 1
+    
+    Returns:
+        color
+    """
+    return BW_CMAP(x)
 
 
 def savefig(name: str, exts: Sequence[str] = IMAGE_EXTENSIONS,
